@@ -5,7 +5,10 @@
 #define DEVICE_NAME L"\\Device\\SLoader"
 #define SYM_LINK_NAME L"\\??\\SLoaderCtl"
 
+#define PATCHCI CTL_CODE(FILE_DEVICE_UNKNOWN, 0x810, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define LOADING CTL_CODE(FILE_DEVICE_UNKNOWN, 0x820, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+typedef UCHAR BYTE;
 
 // Fn DriverEntry
 typedef NTSTATUS(*FnDriverEntry)(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPathy);
@@ -252,6 +255,38 @@ typedef struct _SYSTEM_LOAD_GDI_DRIVER_INFORMATION {
 	ULONG               SizeOfImage;
 } SYSTEM_LOAD_GDI_DRIVER_INFORMATION, * PSYSTEM_LOAD_GDI_DRIVER_INFORMATION;
 
+// SYSTEM MODULE
+typedef struct _SYSTEM_MODULE {
+	ULONG                Reserved1;
+	ULONG                Reserved2;
+	PVOID                ImageBaseAddress;
+	ULONG                ImageSize;
+	ULONG                Flags;
+	INT64                Id;
+	INT64                Rank;
+	INT64                w018;
+	INT64                NameOffset;
+	BYTE                 Name[MAXIMUM_FILENAME_LENGTH];
+} SYSTEM_MODULE, * PSYSTEM_MODULE;
+
+// SYSTEM MODULE INFORMATION
+typedef struct _SYSTEM_MODULE_INFORMATION {
+	ULONG                ModulesCount;
+	SYSTEM_MODULE        Modules[0];
+} SYSTEM_MODULE_INFORMATION, * PSYSTEM_MODULE_INFORMATION;
+
+
+// ====================================== NTSYSAPI ======================================
+
+NTSYSAPI
+NTSTATUS
+NTAPI ZwQuerySystemInformation(
+	IN SYSTEM_INFORMATION_CLASS SystemInformationClass,
+	IN OUT PVOID SystemInformation,
+	IN ULONG SystemInformationLength,
+	OUT OPTIONAL PULONG ReturnLength
+);
+
 NTSYSAPI
 NTSTATUS
 NTAPI ZwSetSystemInformation(
@@ -260,7 +295,9 @@ NTAPI ZwSetSystemInformation(
 	IN ULONG					SystemInformationLength
 );
 
+
 NTSTATUS MajorHandle(PDEVICE_OBJECT pDriverObject, PIRP pIrp);
 NTSTATUS DriverControl(PDEVICE_OBJECT pDriverObject, PIRP pIrp);
 NTSTATUS Loading(PCWSTR pSys);
+NTSTATUS PatchCi(INT i);
 VOID HasStarted(PDRIVER_OBJECT pDriverObject);

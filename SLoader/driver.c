@@ -1,5 +1,8 @@
 #include "driver.h"
 
+SYSTEM_MODULE CiModule = { 0 };
+INT g_CiFlag = NULL;
+
 NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pRegPath)
 {
 	DbgPrint("[SLoader] START\n");
@@ -35,6 +38,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pRegPath)
 
 	pDevice->Flags |= DO_BUFFERED_IO;
 
+	PatchCi(1); // todo:temp
 	HasStarted(pDriverObject);
 
 	return status;
@@ -74,6 +78,17 @@ NTSTATUS DriverControl(PDEVICE_OBJECT pDriverObject, PIRP pIrp)
 		info = sizeof(status);
 		break;
 	}
+	case PATCHCI:
+	{
+		PVOID pBuff = pIrp->AssociatedIrp.SystemBuffer;
+
+		NTSTATUS status = PatchCi(1); //todo:temp
+
+		pIrps->Parameters.DeviceIoControl.OutputBufferLength = sizeof(status);
+		memset(pBuff, status, sizeof(status));
+		info = sizeof(status);
+		break;
+	}
 	default:
 		break;
 	}
@@ -83,6 +98,103 @@ NTSTATUS DriverControl(PDEVICE_OBJECT pDriverObject, PIRP pIrp)
 	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 
 	return STATUS_SUCCESS;
+}
+
+NTSTATUS GetModuleInfo(PUCHAR pName, PSYSTEM_MODULE pModule)
+{
+	KdPrint(("[SLoader] GetModuleInfo: Name:%s\n", pName));
+
+	NTSTATUS status = STATUS_SUCCESS;
+	ULONG length = 0;
+	status = ZwQuerySystemInformation(SystemModuleInformation, NULL, NULL, &length);
+	if (status == STATUS_INFO_LENGTH_MISMATCH)
+	{
+
+		PVOID p = ExAllocatePool2(POOL_FLAG_NON_PAGED, length, 'ISQZ');
+		if (!p) {
+			KdPrint(("[SLoader] GetModuleInfo ExAllocatePool Fail [size:%d], \
+				There is not enough memory in the pool to satisfy the request...\n", length));
+			return status;
+		}
+
+		status = ZwQuerySystemInformation(SystemModuleInformation, p, length, &length);
+		if (!NT_SUCCESS(status))
+		{
+			ExFreePoolWithTag(p, 'ISQZ');
+			KdPrint(("[SLoader] GetModuleInfo QuerySystemInformation PSYSTEM_MODULE_INFORMATION Fail %d ...\n", status));
+			return status;
+		}
+
+		PSYSTEM_MODULE_INFORMATION pSystemModelInformation = (PSYSTEM_MODULE_INFORMATION)p;
+		for (ULONG i = 0; i < pSystemModelInformation->ModulesCount; i++)
+		{
+			PUCHAR pTname = pSystemModelInformation->Modules[i].Name + pSystemModelInformation->Modules[i].NameOffset;
+			if (strcmp(pName, pTname))
+			{
+				KdPrint(("[SLoader] GetModuleInfo strcmp ok: Name:%s\n", pTname));
+				*pModule = pSystemModelInformation->Modules[i];
+				break;
+			}
+
+			KdPrint(("[SLoader] GetModuleInfo strcmp no: Name:%s\n", pTname));
+			KdPrint(("[SLoader] GetModuleInfo SystemModelInformation: Name:%-50s Base:0x%p\n",
+				pSystemModelInformation->Modules[i].Name, pSystemModelInformation->Modules[i].ImageBaseAddress));
+		}
+
+		ExFreePoolWithTag(p, 'ISQZ');
+	}
+	else {
+		KdPrint(("[SLoader] GetModuleInfo QuerySystemInformation Init SystemModuleInformation Size Fail %d ...\n", status));
+	}
+	return status;
+}
+
+NTSTATUS PatchCiInitialize()
+{
+	NTSTATUS status = STATUS_SUCCESS;
+
+	if (!CiModule.ImageBaseAddress)
+	{
+		status = GetModuleInfo("CI.dll", &CiModule);
+		if (!NT_SUCCESS(status))
+		{
+			KdPrint(("[SLoader] Get Module Is Fail: %d\n", status));
+			return status;
+		}
+	}
+
+	if (!g_CiFlag)
+	{
+		// patch g_CiFlag...
+	}
+
+	return status;
+}
+
+NTSTATUS PatchCi(INT i)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	status = PatchCiInitialize();
+
+	if (NT_SUCCESS(status))
+	{
+		switch (i)
+		{
+		case 1:
+			// start patch g_CiFlag = close...
+			break;
+		case 2:
+			// start patch g_CiFlag = test...
+			break;
+		case 3:
+			// start patch g_CiFlag = open...
+			break;
+		default:
+			break;
+		}
+	}
+
+	return status;
 }
 
 NTSTATUS LoadingEx(PCWSTR pSys)

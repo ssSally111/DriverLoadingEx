@@ -1,7 +1,9 @@
 #include "driver.h"
 
-SYSTEM_MODULE CiModule = { 0 };
-INT g_CiFlag = NULL;
+static SYSTEM_MODULE CiModule = { 0 };
+static UINT64 g_CiFlagAddr = 0;
+
+
 
 NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pRegPath)
 {
@@ -12,6 +14,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pRegPath)
 		pDriverObject->MajorFunction[i] = MajorHandle;
 	}
 	pDriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DriverControl;
+	pDriverObject->DriverUnload = DriverUnload;
 
 	NTSTATUS status = STATUS_SUCCESS;
 
@@ -38,7 +41,6 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pRegPath)
 
 	pDevice->Flags |= DO_BUFFERED_IO;
 
-	PatchCi(1); // todo:temp
 	HasStarted(pDriverObject);
 
 	return status;
@@ -53,6 +55,14 @@ NTSTATUS MajorHandle(PDEVICE_OBJECT pDriverObject, PIRP pIrp)
 	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
 
 	return status;
+}
+
+NTSTATUS DriverUnload(PDRIVER_OBJECT pDriverObject)
+{
+	UNICODE_STRING SymLinkName = RTL_CONSTANT_STRING(SYM_LINK_NAME);
+	IoDeleteSymbolicLink(&SymLinkName);
+	IoDeleteDevice(pDriverObject->DeviceObject);
+	return STATUS_SUCCESS;
 }
 
 NTSTATUS DriverControl(PDEVICE_OBJECT pDriverObject, PIRP pIrp)
@@ -70,20 +80,63 @@ NTSTATUS DriverControl(PDEVICE_OBJECT pDriverObject, PIRP pIrp)
 	case LOADING:
 	{
 		PVOID pBuff = pIrp->AssociatedIrp.SystemBuffer;
-
-		NTSTATUS status = Loading((PCWSTR)(pBuff));
-
+		UNICODE_STRING uSys;
+		__try {
+			RtlInitUnicodeString(&uSys, (PCWSTR)pBuff);
+			status = Loading(uSys);
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER) {
+			KdPrint(("[SLoader] FAIL ON LOADING\n"));
+		}
 		pIrps->Parameters.DeviceIoControl.OutputBufferLength = sizeof(status);
 		memset(pBuff, status, sizeof(status));
 		info = sizeof(status);
 		break;
 	}
-	case PATCHCI:
+	case LOADINGEX:
 	{
 		PVOID pBuff = pIrp->AssociatedIrp.SystemBuffer;
-
-		NTSTATUS status = PatchCi(1); //todo:temp
-
+		UNICODE_STRING uSys;
+		__try {
+			RtlInitUnicodeString(&uSys, (PCWSTR)pBuff);
+			status = LoadingEx(uSys);
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER) {
+			KdPrint(("[SLoader] FAIL ON LOADINGEX\n"));
+		}
+		pIrps->Parameters.DeviceIoControl.OutputBufferLength = sizeof(status);
+		memset(pBuff, status, sizeof(status));
+		info = sizeof(status);
+		break;
+	}
+	case PATCHCILOAD:
+	{
+		PVOID pBuff = pIrp->AssociatedIrp.SystemBuffer;
+		PPATCHCILOAD_ENTRY loadEntry = (PPATCHCILOAD_ENTRY)pBuff;
+		UNICODE_STRING uSys;
+		__try {
+			RtlInitUnicodeString(&uSys, loadEntry->sysName);
+			status = PatchCiLoad(uSys, loadEntry->loadMode);
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER) {
+			KdPrint(("[SLoader] FAIL ON PATCHCILOAD\n"));
+		}
+		pIrps->Parameters.DeviceIoControl.OutputBufferLength = sizeof(status);
+		memset(pBuff, status, sizeof(status));
+		info = sizeof(status);
+		break;
+	}
+	case UNLOAD:
+	{
+		PVOID pBuff = pIrp->AssociatedIrp.SystemBuffer;
+		UNICODE_STRING uSys;
+		__try {
+			RtlInitUnicodeString(&uSys, (PCWSTR)pBuff);
+			status = UnloadDriver(pDriverObject->DriverObject, uSys);
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER) {
+			KdPrint(("[SLoader] FAIL ON UNLOAD\n"));
+		}
 		pIrps->Parameters.DeviceIoControl.OutputBufferLength = sizeof(status);
 		memset(pBuff, status, sizeof(status));
 		info = sizeof(status);
@@ -100,48 +153,49 @@ NTSTATUS DriverControl(PDEVICE_OBJECT pDriverObject, PIRP pIrp)
 	return STATUS_SUCCESS;
 }
 
-NTSTATUS GetModuleInfo(PUCHAR pName, PSYSTEM_MODULE pModule)
+NTSTATUS GetModuleInfo(ANSI_STRING name, PSYSTEM_MODULE pModule)
 {
-	KdPrint(("[SLoader] GetModuleInfo: Name:%s\n", pName));
-
 	NTSTATUS status = STATUS_SUCCESS;
 	ULONG length = 0;
-	status = ZwQuerySystemInformation(SystemModuleInformation, NULL, NULL, &length);
+	status = ZwQuerySystemInformation(SystemModuleInformation, NULL, 0, &length);
 	if (status == STATUS_INFO_LENGTH_MISMATCH)
 	{
 
-		PVOID p = ExAllocatePool2(POOL_FLAG_NON_PAGED, length, 'ISQZ');
-		if (!p) {
+		PVOID pSysModuleInfo = ExAllocatePool2(POOL_FLAG_NON_PAGED, length, ZW_QUERY_SYS_INFO);
+		if (!pSysModuleInfo) {
 			KdPrint(("[SLoader] GetModuleInfo ExAllocatePool Fail [size:%d], \
 				There is not enough memory in the pool to satisfy the request...\n", length));
 			return status;
 		}
 
-		status = ZwQuerySystemInformation(SystemModuleInformation, p, length, &length);
+		status = ZwQuerySystemInformation(SystemModuleInformation, pSysModuleInfo, length, &length);
 		if (!NT_SUCCESS(status))
 		{
-			ExFreePoolWithTag(p, 'ISQZ');
+			ExFreePoolWithTag(pSysModuleInfo, ZW_QUERY_SYS_INFO);
 			KdPrint(("[SLoader] GetModuleInfo QuerySystemInformation PSYSTEM_MODULE_INFORMATION Fail %d ...\n", status));
 			return status;
 		}
 
-		PSYSTEM_MODULE_INFORMATION pSystemModelInformation = (PSYSTEM_MODULE_INFORMATION)p;
-		for (ULONG i = 0; i < pSystemModelInformation->ModulesCount; i++)
+		ANSI_STRING ptName;
+		SYSTEM_MODULE module;
+		PSYSTEM_MODULE_INFORMATION pSystemModelInformation = (PSYSTEM_MODULE_INFORMATION)pSysModuleInfo;
+		for (size_t i = 0; i < pSystemModelInformation->ModulesCount; i++)
 		{
-			PUCHAR pTname = pSystemModelInformation->Modules[i].Name + pSystemModelInformation->Modules[i].NameOffset;
-			if (strcmp(pName, pTname))
+			module = pSystemModelInformation->Modules[i];
+			RtlInitAnsiString(&ptName, module.Name + module.NameOffset);
+			if (RtlEqualString(&name, &ptName, TRUE))
 			{
-				KdPrint(("[SLoader] GetModuleInfo strcmp ok: Name:%s\n", pTname));
-				*pModule = pSystemModelInformation->Modules[i];
+				*pModule = module;
 				break;
 			}
-
-			KdPrint(("[SLoader] GetModuleInfo strcmp no: Name:%s\n", pTname));
-			KdPrint(("[SLoader] GetModuleInfo SystemModelInformation: Name:%-50s Base:0x%p\n",
-				pSystemModelInformation->Modules[i].Name, pSystemModelInformation->Modules[i].ImageBaseAddress));
 		}
 
-		ExFreePoolWithTag(p, 'ISQZ');
+		ExFreePoolWithTag(pSysModuleInfo, ZW_QUERY_SYS_INFO);
+
+		if (!pModule->ImageBaseAddress)
+		{
+			status = STATUS_OBJECT_NAME_NOT_FOUND;
+		}
 	}
 	else {
 		KdPrint(("[SLoader] GetModuleInfo QuerySystemInformation Init SystemModuleInformation Size Fail %d ...\n", status));
@@ -155,59 +209,99 @@ NTSTATUS PatchCiInitialize()
 
 	if (!CiModule.ImageBaseAddress)
 	{
-		status = GetModuleInfo("CI.dll", &CiModule);
+		ANSI_STRING name = RTL_CONSTANT_STRING("CI.dll");
+		status = GetModuleInfo(name, &CiModule);
 		if (!NT_SUCCESS(status))
 		{
-			KdPrint(("[SLoader] Get Module Is Fail: %d\n", status));
+			KdPrint(("[SLoader] Get Module NOT_FOUND: %d\n", status));
 			return status;
 		}
 	}
 
-	if (!g_CiFlag)
+	if (!g_CiFlagAddr)
 	{
-		// patch g_CiFlag...
+		UCHAR i, r;
+		UINT64 ImageEndAddress = (UINT64)CiModule.ImageBaseAddress + CiModule.ImageSize;
+		for (UINT64 p = (UINT64)CiModule.ImageBaseAddress; p < ImageEndAddress - 7; p++)
+		{
+			r = TRUE;
+			for (i = 0; i < CHECK_BLOCK_SIZE; i++)
+			{
+				if (!MmIsAddressValid((PVOID)(p + i))) {
+					p += i;
+					r = FALSE;
+					break;
+				}
+			}
+
+			if (r && _64R8U(p) == _64R8U(WIN10LTSC_21H2_19044_MARK)) {
+				g_CiFlagAddr = p + (0xFFFFFFFF00000000 | (UINT64)_64R4U(p + 2)) + 6;
+				if (!MmIsAddressValid((PVOID)g_CiFlagAddr))
+				{
+					status = STATUS_ACPI_INVALID_DATA;
+					KdPrint(("[SLoader] INVALID ADDR 0x%llX: %d\n", g_CiFlagAddr, status));
+					g_CiFlagAddr = 0;
+				}
+				return status;
+			}
+		}
+
+		/*
+		 * This doesn't support your machine.
+		 *
+		 * Only Support Version(Tested):
+		 * WIN10LTSC_21H2_19044_MARK,
+		 */
+		status = STATUS_IMAGE_MACHINE_TYPE_MISMATCH_EXE;
+		KdPrint(("[SLoader] MACHINE TYPE MISMATCH: %d\n", status));
 	}
 
 	return status;
 }
 
-NTSTATUS PatchCi(INT i)
+NTSTATUS PatchCiLoad(UNICODE_STRING pSys, INT loadMode)
 {
 	NTSTATUS status = STATUS_SUCCESS;
 	status = PatchCiInitialize();
 
 	if (NT_SUCCESS(status))
 	{
-		switch (i)
+		// must IRQL < DISPATCH_LEVEL, need access paging.
+		LONG cuMode = _64R4U(g_CiFlagAddr);
+		_64R4U(g_CiFlagAddr) = 0;
+
+		switch (loadMode)
 		{
 		case 1:
-			// start patch g_CiFlag = close...
+		{
+			status = Loading(pSys);
 			break;
+		}
 		case 2:
-			// start patch g_CiFlag = test...
+		{
+			status = LoadingEx(pSys);
 			break;
-		case 3:
-			// start patch g_CiFlag = open...
-			break;
+		}
 		default:
 			break;
 		}
+
+		_64R4U(g_CiFlagAddr) = cuMode;
 	}
 
 	return status;
 }
 
-NTSTATUS LoadingEx(PCWSTR pSys)
+NTSTATUS LoadingEx(UNICODE_STRING uSys)
 {
 	NTSTATUS status = STATUS_SUCCESS;
-	KdPrint(("[SLoader] LoadEx: %S\n", pSys));
+	KdPrint(("[SLoader] LoadEx: %wZ\n", uSys));
 
-	WCHAR _pSys[260] = { 0 };
-	wcscpy_s(_pSys, 260, L"\\??\\");
-	wcscat_s(_pSys, 260, pSys);
+	UNICODE_STRING sys = RTL_CONSTANT_STRING(L"\\??\\");
+	RtlAppendUnicodeStringToString(&sys, &uSys);
 
 	SYSTEM_LOAD_GDI_DRIVER_INFORMATION DriverInfo;
-	RtlInitUnicodeString(&(DriverInfo.SysName), _pSys);
+	DriverInfo.SysName = sys;
 	status = ZwSetSystemInformation(SystemExtendServiceTableInformation, &DriverInfo, sizeof(SYSTEM_LOAD_GDI_DRIVER_INFORMATION));
 	if (!NT_SUCCESS(status))
 	{
@@ -219,17 +313,16 @@ NTSTATUS LoadingEx(PCWSTR pSys)
 	return status;
 }
 
-NTSTATUS Loading(PCWSTR pSys)
+NTSTATUS Loading(UNICODE_STRING uSys)
 {
 	NTSTATUS status = STATUS_SUCCESS;
-	KdPrint(("[SLoader] Load: %S\n", pSys));
+	KdPrint(("[SLoader] Load: %wZ\n", uSys));
 
-	WCHAR _pSys[260] = { 0 };
-	wcscpy_s(_pSys, 260, L"\\??\\");
-	wcscat_s(_pSys, 260, pSys);
+	UNICODE_STRING sys = RTL_CONSTANT_STRING(L"\\??\\");
+	RtlAppendUnicodeStringToString(&sys, &uSys);
 
 	SYSTEM_LOAD_GDI_DRIVER_INFORMATION DriverInfo;
-	RtlInitUnicodeString(&(DriverInfo.SysName), _pSys);
+	DriverInfo.SysName = sys;
 	status = ZwSetSystemInformation(SystemLoadGdiDriverInSystemSpace, &DriverInfo, sizeof(SYSTEM_LOAD_GDI_DRIVER_INFORMATION));
 	if (!NT_SUCCESS(status))
 	{
@@ -253,6 +346,38 @@ NTSTATUS Loading(PCWSTR pSys)
 
 	KdPrint(("[SLoader] Load Successful\n"));
 	return status;
+}
+
+NTSTATUS UnloadDriver(PDRIVER_OBJECT pDriverObject, UNICODE_STRING sysName)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	UNICODE_STRING suffix = RTL_CONSTANT_STRING(L".sys");
+	RtlAppendUnicodeStringToString(&sysName, &suffix);
+	PLIST_ENTRY tempEntry = ((PLIST_ENTRY)pDriverObject->DriverSection)->Flink;
+	while (pDriverObject->DriverSection != tempEntry)
+	{
+		if (RtlEqualUnicodeString(&sysName, &((PKLDR_DATA_TABLE_ENTRY)tempEntry)->BaseDllName, FALSE))
+		{
+			SYSTEM_LOAD_GDI_DRIVER_INFORMATION DriverInfo;
+			DriverInfo.SysName = ((PKLDR_DATA_TABLE_ENTRY)tempEntry)->FullDllName;
+			status = ZwSetSystemInformation(SystemLoadGdiDriverInSystemSpace, &DriverInfo, sizeof(SYSTEM_LOAD_GDI_DRIVER_INFORMATION));
+			if (status == STATUS_IMAGE_ALREADY_LOADED)
+			{
+				status = ZwSetSystemInformation(SystemUnloadGdiDriverInformation, DriverInfo.DriverInfo, 0x4);
+				if (NT_SUCCESS(status))
+				{
+					KdPrint(("[SLoader] UnloadDriver Successful\n"));
+					return status;
+				}
+			}
+
+			KdPrint(("[SLoader] UnloadDriver Successful\n"));
+			return status;
+		}
+		tempEntry = tempEntry->Flink;
+	}
+
+	return STATUS_SUCCESS;
 }
 
 VOID _HasStarted(PVOID pDriver)

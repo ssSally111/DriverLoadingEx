@@ -2,13 +2,23 @@
 
 #include <ntddk.h>
 
+#pragma warning(disable:28182 6387)
+
 #define DEVICE_NAME L"\\Device\\SLoader"
 #define SYM_LINK_NAME L"\\??\\SLoaderCtl"
 
-#define PATCHCI CTL_CODE(FILE_DEVICE_UNKNOWN, 0x810, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define PATCHCILOAD CTL_CODE(FILE_DEVICE_UNKNOWN, 0x810, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define LOADING CTL_CODE(FILE_DEVICE_UNKNOWN, 0x820, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define LOADINGEX CTL_CODE(FILE_DEVICE_UNKNOWN, 0x830, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define UNLOAD CTL_CODE(FILE_DEVICE_UNKNOWN, 0x840, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
-typedef UCHAR BYTE;
+#define ZW_QUERY_SYS_INFO 'ISQZ'
+
+#define _64R8U(p) *(PUINT64)(p)
+#define _64R4U(p) *(PULONG)(p)
+
+#define CHECK_BLOCK_SIZE 0x8
+static UCHAR WIN10LTSC_21H2_19044_MARK[] = { 0x8B ,0x0D ,0x84 ,0xAB ,0xFD ,0xFF ,0x83 ,0xE1 };
 
 // Fn DriverEntry
 typedef NTSTATUS(*FnDriverEntry)(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPathy);
@@ -259,14 +269,16 @@ typedef struct _SYSTEM_LOAD_GDI_DRIVER_INFORMATION {
 typedef struct _SYSTEM_MODULE {
 	ULONG                Reserved1;
 	ULONG                Reserved2;
+	ULONG                Reserved3;
+	ULONG                Reserved4;
 	PVOID                ImageBaseAddress;
 	ULONG                ImageSize;
 	ULONG                Flags;
-	INT64                Id;
-	INT64                Rank;
-	INT64                w018;
-	INT64                NameOffset;
-	BYTE                 Name[MAXIMUM_FILENAME_LENGTH];
+	USHORT               Id;
+	USHORT               Rank;
+	USHORT               w018;
+	USHORT               NameOffset;
+	UCHAR                Name[MAXIMUM_FILENAME_LENGTH];
 } SYSTEM_MODULE, * PSYSTEM_MODULE;
 
 // SYSTEM MODULE INFORMATION
@@ -275,8 +287,38 @@ typedef struct _SYSTEM_MODULE_INFORMATION {
 	SYSTEM_MODULE        Modules[0];
 } SYSTEM_MODULE_INFORMATION, * PSYSTEM_MODULE_INFORMATION;
 
+// ldr entry
+typedef struct _KLDR_DATA_TABLE_ENTRY {
+	LIST_ENTRY InLoadOrderLinks;
+	PVOID64 ExceptionTable;
+	USHORT ExceptionTableSize;
+	PVOID64 GpValue;
+	USHORT NonPagedDebugInfo;
+	PVOID64 DllBase;
+	PVOID64 EntryPoint;
+	INT64 SizeOfImage;
+	UNICODE_STRING FullDllName;
+	UNICODE_STRING BaseDllName;
+	ULONG Flags;
+	USHORT LoadCount;
+	UCHAR u1;
+	PVOID64 SectionPointer;
+	ULONG CheckSum;
+	ULONG CoverageSectionSize;
+	PVOID64 CoverageSection;
+	PVOID64 LoadedImports;
+	PVOID64 Spare;
+	ULONG SizeOfImageNotRounded;
+	ULONG TimeDateStamp;
+} KLDR_DATA_TABLE_ENTRY, * PKLDR_DATA_TABLE_ENTRY;
 
-// ====================================== NTSYSAPI ======================================
+// PATCHCILOAD ENTRY
+typedef struct _PATCHCILOAD_ENTRY
+{
+	PCWSTR sysName;
+	INT loadMode;
+}PATCHCILOAD_ENTRY, * PPATCHCILOAD_ENTRY;
+
 
 NTSYSAPI
 NTSTATUS
@@ -297,7 +339,10 @@ NTAPI ZwSetSystemInformation(
 
 
 NTSTATUS MajorHandle(PDEVICE_OBJECT pDriverObject, PIRP pIrp);
+NTSTATUS DriverUnload(PDRIVER_OBJECT pDriverObject);
 NTSTATUS DriverControl(PDEVICE_OBJECT pDriverObject, PIRP pIrp);
-NTSTATUS Loading(PCWSTR pSys);
-NTSTATUS PatchCi(INT i);
+NTSTATUS Loading(UNICODE_STRING pSys);
+NTSTATUS LoadingEx(UNICODE_STRING pSys);
+NTSTATUS PatchCiLoad(UNICODE_STRING pSys, INT loadMode);
+NTSTATUS UnloadDriver(PDRIVER_OBJECT pDriverObject, UNICODE_STRING pSysName);
 VOID HasStarted(PDRIVER_OBJECT pDriverObject);

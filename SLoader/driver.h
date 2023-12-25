@@ -17,8 +17,10 @@
 #define _64R8U(p) *(PUINT64)(p)
 #define _64R4U(p) *(PULONG)(p)
 
+// sys peculiarity code
 #define CHECK_BLOCK_SIZE 0x8
 static UCHAR WIN10LTSC_21H2_19044_MARK[] = { 0x8B ,0x0D ,0x84 ,0xAB ,0xFD ,0xFF ,0x83 ,0xE1 };
+static UCHAR WIN11_23H2_22631_MARK[] = { 0x8B ,0x0D ,0xF8 ,0xC7 ,0xFD ,0xFF ,0xBB ,0x00 };
 
 // Fn DriverEntry
 typedef NTSTATUS(*FnDriverEntry)(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPathy);

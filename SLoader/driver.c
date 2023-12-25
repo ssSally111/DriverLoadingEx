@@ -4,7 +4,6 @@ static SYSTEM_MODULE CiModule = { 0 };
 static UINT64 g_CiFlagAddr = 0;
 
 
-
 NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pRegPath)
 {
 	DbgPrint("[SLoader] START\n");
@@ -234,7 +233,9 @@ NTSTATUS PatchCiInitialize()
 				}
 			}
 
-			if (r && _64R8U(p) == _64R8U(WIN10LTSC_21H2_19044_MARK)) {
+			if (r && (
+				_64R8U(p) == _64R8U(WIN10LTSC_21H2_19044_MARK) || 
+				_64R8U(p) == _64R8U(WIN11_23H2_22631_MARK))) {
 				g_CiFlagAddr = p + (0xFFFFFFFF00000000 | (UINT64)_64R4U(p + 2)) + 6;
 				if (!MmIsAddressValid((PVOID)g_CiFlagAddr))
 				{
@@ -251,6 +252,8 @@ NTSTATUS PatchCiInitialize()
 		 *
 		 * Only Support Version(Tested):
 		 * WIN10LTSC_21H2_19044_MARK,
+		 * WIN11_23H2_22631_MARK,
+		 * ...
 		 */
 		status = STATUS_IMAGE_MACHINE_TYPE_MISMATCH_EXE;
 		KdPrint(("[SLoader] MACHINE TYPE MISMATCH: %d\n", status));
@@ -292,6 +295,24 @@ NTSTATUS PatchCiLoad(UNICODE_STRING pSys, INT loadMode)
 	return status;
 }
 
+/*
+ * 43 00 3A 00 2F 00 61 00 2E 00 73 00 79 00 73 00 00 00	p							C:/a.sys	; 'wstr'
+ * 5C 00 3F 00 3F 00 5C 00 00 00							rsp+0A8h+Destination		/??/		; 'wstr'
+ * 
+ * 48 8B 94 24 B0 00 00 00									mov		rdx, p
+ * 48 8D 4C 24 28											lea		rcx, rsp+0A8h+Destination
+ * FF 15 B7 16 00 00                                        call	RtlAppendUnicodeStringToString
+ * 48 8D 4C 24 28											lea		rcx, rsp+0A8h+Destination		; 'DriverInfo.SysName'
+ * 
+ * 41 B8 38 00 00 00                                        mov     r8d, 38h ; '0n38' 
+ * 48 8D 54 24 50                                           lea     rdx, [rsp+0A8h+var_58]			; '&DriverInfo'
+ * B9 26 00 00 00                                           mov     ecx, 26h						; '&SYSTEM_LOAD_GDI_DRIVER_INFORMATION=26byte'
+ * FF 15 02 17 00 00                                        call    ZwSetSystemInformation
+ * 
+ * 89 44 24 20												mov		[rsp+0A8h+var_88], eax			; 'if eax==0'
+ * 83 7C 24 20 00                                           cmp     [rsp+0A8h+var_88], 0
+ * 7D 19													jeg		xxxxxxxx
+ */
 NTSTATUS LoadingEx(UNICODE_STRING uSys)
 {
 	NTSTATUS status = STATUS_SUCCESS;

@@ -1,8 +1,11 @@
 ﻿#include "framework.h"
 #include "WDriverLoadingEx.h"
+#include <stdio.h>
+#include <iostream>
 
 #define MAX_LOADSTRING 100
 
+HWND winText;
 HANDLE g_hDevice;
 HINSTANCE hInst;
 WCHAR szTitle[MAX_LOADSTRING] = L"WDriverLoadingEx";
@@ -76,8 +79,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
 	hInst = hInstance;
 
-	HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-		CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
+	HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME ^ WS_MAXIMIZEBOX,
+		CW_USEDEFAULT, 0, WIN_WIDTH, WIN_HEIGHT, nullptr, nullptr, hInstance, nullptr);
 
 	if (!hWnd)
 	{
@@ -94,14 +97,25 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message)
 	{
+	case WM_CREATE:
+	{
+		InitWin(hWnd, lParam);
+		break;
+	}
 	case WM_COMMAND:
 	{
 		int wmId = LOWORD(wParam);
 		switch (wmId)
 		{
-		case IDM_EXIT:
-			DestroyWindow(hWnd);
+		case CBN_SELCHANGE:
+		{
+			// todo: temp on ComboBox msg
+			int ItemIndex = SendMessage((HWND)lParam, (UINT)CB_GETCURSEL,(WPARAM)0, (LPARAM)0);
+			WCHAR  ListItem[256];
+			SendMessage((HWND)lParam, (UINT)CB_GETLBTEXT, (WPARAM)ItemIndex, (LPARAM)ListItem);
+			MessageBox(hWnd, (LPCWSTR)ListItem, L"Item Selected", MB_OK);
 			break;
+		}
 		default:
 			return DefWindowProc(hWnd, message, wParam, lParam);
 		}
@@ -227,4 +241,39 @@ VOID PatchLoading(PPATCHCILOAD_ENTRY pPatchLoadEntry)
 VOID UnloadDriver(PCWSTR pSysName)
 {
 	Send(g_hDevice, LOADING, (PVOID)pSysName, sizeof(pSysName));
+}
+
+VOID InitWin(HWND hWnd, LPARAM lParam)
+{
+	winText = CreateWindow(L"STATIC", L"", WS_CAPTION ^ 0x00400000L | 0x40000000L | WS_VISIBLE | SS_LEFTNOWORDWRAP | SS_WORDELLIPSIS | SS_SUNKEN,
+		100, 30, 320, 20, hWnd, (HMENU)1, hInst, NULL);
+
+	HWND winButnOpenFile = CreateWindow(L"BUTTON", L"选择驱动", WS_TABSTOP | WS_VISIBLE | 0x40000000L | BS_DEFPUSHBUTTON,
+		10, 30, 70, 20, hWnd, (HMENU)2, hInst, NULL);
+
+	HWND winButnStartR0 = CreateWindow(L"BUTTON", L"R0加载运行", WS_TABSTOP | WS_VISIBLE | 0x40000000L | BS_DEFPUSHBUTTON,
+		10, 70, 80, 20, hWnd, (HMENU)3, hInst, NULL);
+
+	HWND winButnEndR0 = CreateWindow(L"BUTTON", L"R0关闭卸载", WS_TABSTOP | WS_VISIBLE | 0x40000000L | BS_DEFPUSHBUTTON,
+		110, 70, 80, 20, hWnd, (HMENU)4, hInst, NULL);
+
+	HWND winComboBox = CreateWindow(L"COMBOBOX", L"", CBS_DROPDOWN | CBS_HASSTRINGS | 0x40000000L | WS_OVERLAPPED | WS_VISIBLE,
+		200, 70, 170, 20, hWnd, (HMENU)5, hInst, NULL);
+
+	WCHAR Planets[4][19] =
+	{
+		L"模式1-Loading",L"模式2-LoadingEx",L"模式3-PatchLoading",L"模式3-PatchLoadingEx"
+	};
+
+	WCHAR list[40];
+	memset(&list, 0, sizeof(list));
+	for (int k = 0; k < 4; k++)
+	{
+		wcscpy_s(list, sizeof(list) / sizeof(WCHAR), (WCHAR*)Planets[k]);
+		SendMessage(winComboBox, (UINT)CB_ADDSTRING, (WPARAM)0, (LPARAM)list);
+	}
+	SendMessage(winComboBox, CB_SETCURSEL, (WPARAM)2, (LPARAM)0);
+
+	// ...
+
 }

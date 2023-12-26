@@ -148,11 +148,11 @@
     <ClCompile Include="WDriverLoadingEx.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="WDriverLoadingEx.rc" />
-  </ItemGroup>
-  <ItemGroup>
     <Image Include="small.ico" />
     <Image Include="WDriverLoadingEx.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="WDriverLoadingEx.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

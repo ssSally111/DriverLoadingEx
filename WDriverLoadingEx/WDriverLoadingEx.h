@@ -3,6 +3,9 @@
 #include "resource.h"
 #include <winioctl.h>
 
+#define WIN_WIDTH 500
+#define WIN_HEIGHT 200
+
 #define DRIVER_NAME L"\\\\.\\SLoaderCtl"
 
 #define PATCHCILOAD CTL_CODE(FILE_DEVICE_UNKNOWN, 0x810, METHOD_BUFFERED, FILE_ANY_ACCESS)
@@ -21,3 +24,4 @@ VOID Loading(PCTSTR pSys);
 VOID LoadingEx(PCTSTR pSys);
 VOID PatchLoading(PPATCHCILOAD_ENTRY pPatchLoadEntry);
 VOID UnloadDriver(PCWSTR pSysName);
+VOID InitWin(HWND hWnd, LPARAM lParam);

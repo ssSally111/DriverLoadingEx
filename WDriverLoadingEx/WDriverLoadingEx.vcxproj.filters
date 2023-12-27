@@ -27,9 +27,21 @@
     <ClInclude Include="WDriverLoadingEx.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="LoadingEx.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Loading.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="WDriverLoadingEx.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="LoadingEx.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Loading.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

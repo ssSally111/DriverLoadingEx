@@ -1,27 +1,16 @@
 #pragma once
 
 #include "resource.h"
-#include <winioctl.h>
+#include <commdlg.h>
+#include "Loading.h"
+#include "LoadingEx.h"
+
+using namespace std;
 
 #define WIN_WIDTH 500
-#define WIN_HEIGHT 200
+#define WIN_HEIGHT 195
 
-#define DRIVER_NAME L"\\\\.\\SLoaderCtl"
+SLoading Loading;
+SLoadingEx LoadingEx;
 
-#define PATCHCILOAD CTL_CODE(FILE_DEVICE_UNKNOWN, 0x810, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define LOADING CTL_CODE(FILE_DEVICE_UNKNOWN, 0x820, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define LOADINGEX CTL_CODE(FILE_DEVICE_UNKNOWN, 0x830, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define UNLOAD CTL_CODE(FILE_DEVICE_UNKNOWN, 0x840, METHOD_BUFFERED, FILE_ANY_ACCESS)
-
-// PATCHCILOAD ENTRY
-typedef struct _PATCHCILOAD_ENTRY
-{
-	PCWSTR sysName;
-	INT loadMode;
-}PATCHCILOAD_ENTRY, * PPATCHCILOAD_ENTRY;
-
-VOID Loading(PCTSTR pSys);
-VOID LoadingEx(PCTSTR pSys);
-VOID PatchLoading(PPATCHCILOAD_ENTRY pPatchLoadEntry);
-VOID UnloadDriver(PCWSTR pSysName);
 VOID InitWin(HWND hWnd, LPARAM lParam);

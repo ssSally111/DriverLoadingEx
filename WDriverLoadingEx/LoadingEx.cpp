@@ -2,7 +2,7 @@
 
 SLoadingEx::SLoadingEx()
 {
-	// InitDriverControls();
+	InitDriverControls();
 }
 
 SLoadingEx::~SLoadingEx()
@@ -30,6 +30,14 @@ VOID SLoadingEx::InitDriverControls()
 		// Attempt to load driver.
 		LPCWSTR lpServiceName = L"SLoader";
 		LPCWSTR lpDriverPath = L".\\SLoader.sys";
+
+		if (_waccess(lpDriverPath, 0) == ENOENT)
+		{
+			MessageBox(NULL, L"load device fail 0x00001101", L"init fail", MB_OK);
+			return;
+		}
+
+
 		SC_HANDLE hSCManager = OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
 		if (!hSCManager)
 		{
@@ -81,6 +89,12 @@ VOID SLoadingEx::InitDriverControls()
 
 inline VOID SLoadingEx::Send(DWORD code, PVOID p, DWORD buffSize)
 {
+	if (!g_hDevice)
+	{
+		MessageBox(NULL, L"load device fail 0x00009010", L"init fail", MB_OK);
+		return;
+	}
+
 	DWORD dwOpt = 0;
 	CHAR optBuff[9];
 	if (DeviceIoControl(g_hDevice, code, p, buffSize, optBuff, 8, &dwOpt, NULL))

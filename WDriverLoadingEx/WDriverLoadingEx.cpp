@@ -4,7 +4,7 @@
 #define MAX_LOADSTRING 100
 
 WCHAR szFullFileName[MAX_PATH] = { 0 };
-WCHAR szFileName[64] = { 0 };
+WCHAR szFileName[MAX_FILE_NAME] = { 0 };
 HWND winText;
 HWND winComboBox;
 HINSTANCE hInst;
@@ -84,6 +84,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 		return FALSE;
 	}
 
+	DragAcceptFiles(hWnd, TRUE);
 	ShowWindow(hWnd, nCmdShow);
 	UpdateWindow(hWnd);
 
@@ -135,19 +136,29 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				{
 				case 0:
 				{
-					//LoadingEx.Loading(szFileName);
+					LoadingEx.Loading(szFullFileName);
+					break;
 				}
 				case 1:
 				{
-					//LoadingEx.LoadingEx(szFileName);
+					LoadingEx.LoadingEx(szFullFileName);
+					break;
 				}
 				case 2:
 				{
-					//LoadingEx.Loading(szFileName);
+					PATCHCILOAD_ENTRY entry{};
+					entry.sysName = szFullFileName;
+					entry.loadMode = 1;
+					LoadingEx.PatchLoading(&entry);
+					break;
 				}
 				case 3:
 				{
-					//LoadingEx.Loading(szFileName);
+					PATCHCILOAD_ENTRY entry{};
+					entry.sysName = szFullFileName;
+					entry.loadMode = 2;
+					LoadingEx.PatchLoading(&entry);
+					break;
 				}
 				default:
 					break;
@@ -160,7 +171,48 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			// r0 unload
 			if (szFullFileName)
 			{
-				// LoadingEx.UnloadDriver(szFileName);
+				LoadingEx.UnloadDriver(szFileName);
+				break;
+			}
+			break;
+		}
+		case 2106:
+		{
+			// r3 load
+			if (szFullFileName)
+			{
+				Loading.DriverLoading(szFullFileName, szFileName);
+				break;
+			}
+			break;
+		}
+		case 2107:
+		{
+			// r3 start
+			if (szFullFileName)
+			{
+				Loading.DriverActivate(szFileName);
+				break;
+			}
+			break;
+		}
+		case 2108:
+		{
+			// r3 close
+			if (szFullFileName)
+			{
+				Loading.DriverClose(szFileName);
+				break;
+			}
+			break;
+		}
+		case 2109:
+		{
+			// r0 unload
+			if (szFullFileName)
+			{
+				Loading.DriverUnload(szFileName);
+				break;
 			}
 			break;
 		}
@@ -175,6 +227,27 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		HDC hdc = BeginPaint(hWnd, &ps);
 
 		EndPaint(hWnd, &ps);
+	}
+	break;
+	case WM_DROPFILES:
+	{
+		WCHAR szTFullFileName[MAX_PATH] = { 0 };
+		WCHAR szTFileName[MAX_FILE_NAME] = { 0 };
+		WCHAR szTExt[6] = { 0 };
+		::DragQueryFile((HDROP)wParam, (UINT)0, szTFullFileName, MAX_PATH);
+		__try
+		{
+			_wsplitpath(szTFullFileName, NULL, NULL, szTFileName, szTExt);
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER){}
+		if (*(PINT64)szTExt!= 0x7300790073002E)
+		{
+			MessageBox(hWnd, L"only support *.sys file.", L"fail", 0);
+			break;
+		}
+		memcpy(szFullFileName,szTFullFileName, MAX_PATH);
+		memcpy(szFileName, szTFileName, MAX_FILE_NAME);
+		SetWindowText(winText, szFullFileName);
 	}
 	break;
 	case WM_DESTROY:
